@@ -106,11 +106,7 @@ var keyCodes = map[string]string{
 }
 
 type Conn struct {
-	network  string // tcp or udp
-	address  string
-	user     string
-	pass     string
-	passHash string
+	settings Settings
 
 	session        int32
 	packetSequence int32
@@ -152,21 +148,40 @@ type Frame struct {
 	Meta MetaInfo
 }
 
-func New(network, address, user, pass, passHash string, timeout time.Duration) (*Conn, error) {
+type Settings struct {
+	Network      string
+	Address      string
+	User         string
+	Password     string
+	PasswordHash string
+	DialTimout   time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+}
+
+func (s *Settings) validate() error {
+	return nil
+}
+
+func (s *Settings) setDefaults() {
+
+}
+
+func New(settings Settings) (*Conn, error) {
 	conn := Conn{
-		network:  network,
-		address:  address,
-		user:     user,
-		pass:     pass,
-		passHash: passHash,
+		settings: settings,
 	}
 
-	c, err := net.DialTimeout(network, address, timeout)
+	err := settings.validate()
 	if err != nil {
 		return nil, err
 	}
 
-	conn.c = c
+	conn.c, err = net.DialTimeout(settings.Network, settings.Address, settings.DialTimout)
+	if err != nil {
+		return nil, err
+	}
+
 	return &conn, nil
 }
 
@@ -174,8 +189,8 @@ func (c *Conn) Login() error {
 	body, err := json.Marshal(map[string]string{
 		"EncryptType": "MD5",
 		"LoginType":   "DVRIP-WEB",
-		"PassWord":    c.passHash,
-		"UserName":    c.user,
+		"PassWord":    c.settings.PasswordHash,
+		"UserName":    c.settings.User,
 	})
 
 	if err != nil {
