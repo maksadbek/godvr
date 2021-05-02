@@ -2,6 +2,7 @@ package dvrip
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -12,8 +13,8 @@ import (
 )
 
 const (
-	portUDP = 34568
-	portTCP = 34567
+	portUDP = "34568"
+	portTCP = "34567"
 )
 
 var magicEnd = [2]byte{0x0A, 0x00}
@@ -91,7 +92,9 @@ const (
 	codeOPMailTest       requestCode = 1636
 )
 
-var requestCodes = map[requestCode]string{}
+var requestCodes = map[requestCode]string{
+	codeOPMonitor: "OPMonitor",
+}
 
 var keyCodes = map[string]string{
 	"M": "Menu",
@@ -154,6 +157,7 @@ type Settings struct {
 	User         string
 	Password     string
 	PasswordHash string
+
 	DialTimout   time.Duration
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -164,7 +168,46 @@ func (s *Settings) validate() error {
 }
 
 func (s *Settings) setDefaults() {
+	if s.User == "" {
+		s.User = "admin"
+	}
 
+	if s.Network == "" {
+		s.Network = "tcp"
+	}
+
+	if s.PasswordHash == "" {
+		s.PasswordHash = sofiaHash(s.Password)
+	}
+
+	host, port, _ := net.SplitHostPort(s.Address)
+	if port == "" {
+		switch s.Network {
+		case "tcp":
+			port = portTCP
+		case "udp":
+			port = portUDP
+		default:
+			panic("invalid network: " + s.Network)
+		}
+	}
+
+	s.Address = host + ":" + port
+
+}
+
+const alnum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+func sofiaHash(password string) string {
+	digest := md5.Sum([]byte(password))
+	hash := make([]byte, 8)
+
+	for i := 1; i < len(digest); i++ {
+		sum := int(digest[i] + digest[i-1])
+		hash = append(hash, alnum[sum%len(alnum)])
+	}
+
+	return string(hash)
 }
 
 func New(settings Settings) (*Conn, error) {
@@ -363,7 +406,11 @@ func (c *Conn) send(msgID requestCode, data []byte) (*Payload, error) {
 	}
 
 	resp, err := c.recv()
-	return resp, err
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (c *Conn) recv() (*Payload, error) {
@@ -400,7 +447,6 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 
 			switch dataType {
 			case 0x1FC, 0x1FE:
-				// 12 bytes
 				frame := struct {
 					Media    byte
 					FPS      byte
@@ -477,11 +523,11 @@ func parseMediaType(dataType uint32, mediaCode byte) string {
 	case 0x1FC, 0x1FD:
 		switch mediaCode {
 		case 1:
-			return "mpeg4"
+			return "MPEG4"
 		case 2:
-			return "h264"
+			return "H264"
 		case 3:
-			return "h265"
+			return "H265"
 		}
 	case 0x1F9:
 		if mediaCode == 1 || mediaCode == 6 {
@@ -489,11 +535,11 @@ func parseMediaType(dataType uint32, mediaCode byte) string {
 		}
 	case 0x1FA:
 		if mediaCode == 0xE {
-			return "g711a"
+			return "G711A"
 		}
 	case 0x1FE:
 		if mediaCode == 0 {
-			return "jpeg"
+			return "JPEG"
 		}
 	default:
 		return "unknown"
