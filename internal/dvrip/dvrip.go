@@ -113,7 +113,7 @@ type Conn struct {
 
 	session        int32
 	packetSequence int32
-	aliveTime      int
+	aliveTime      time.Duration
 
 	c     net.Conn
 	cLock sync.Mutex
@@ -133,8 +133,6 @@ type Payload struct {
 	_              byte
 	MsgID          int16
 	BodyLength     int32
-	Body           []byte
-	MagicEnd       [2]byte
 }
 
 type MetaInfo struct {
@@ -161,10 +159,6 @@ type Settings struct {
 	DialTimout   time.Duration
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-}
-
-func (s *Settings) validate() error {
-	return nil
 }
 
 func (s *Settings) setDefaults() {
@@ -215,10 +209,9 @@ func New(settings Settings) (*Conn, error) {
 		settings: settings,
 	}
 
-	err := settings.validate()
-	if err != nil {
-		return nil, err
-	}
+	settings.setDefaults()
+
+	var err error
 
 	conn.c, err = net.DialTimeout(settings.Network, settings.Address, settings.DialTimout)
 	if err != nil {
@@ -240,60 +233,52 @@ func (c *Conn) Login() error {
 		return err
 	}
 
-	resp, err := c.send(codeLogin, body)
+	_, body, err = c.send(codeLogin, body)
 	if err != nil {
 		return err
 	}
 
-	m := map[string]string{}
-	err = json.Unmarshal(resp.Body, &m)
+	m := map[string]interface{}{}
+	err = json.Unmarshal(body, &m)
 	if err != nil {
 		return err
 	}
 
-	status, err := strconv.ParseUint(m["Ret"], 10, 16)
-	if err != nil {
-		return err
+	status, ok := m["Ret"].(float64)
+	if !ok {
+		return fmt.Errorf("ret is not an int: %v", m["Ret"])
 	}
 
-	if statusCode(status) != statusOK || statusCode(status) != statusUpgradeSuccessful {
+	if (statusCode(status) != statusOK) && (statusCode(status) != statusUpgradeSuccessful) {
 		return fmt.Errorf("unexpected status code: %v - %v", status, statusCodes[statusCode(status)])
 	}
 
-	session, err := strconv.ParseUint(m["session"], 10, 32)
+	session, err := strconv.ParseUint(m["SessionID"].(string), 0, 32)
 	if err != nil {
 		return err
 	}
 	c.session = int32(session)
-
-	aliveInterval, err := strconv.ParseUint(m["AliveInterval"], 10, 32)
-	if err != nil {
-		return err
-	}
-
-	if err := c.setKeepAlive(time.Second * time.Duration(aliveInterval)); err != nil {
-		panic(err)
-	}
+	c.aliveTime = time.Second * time.Duration(m["AliveInterval"].(float64))
 
 	return nil
 }
 
-func (c *Conn) Command(command requestCode, data []byte) (*Payload, error) {
+func (c *Conn) Command(command requestCode, data []byte) (*Payload, []byte, error) {
 	params, err := json.Marshal(map[string]string{
 		"Name":                requestCodes[command],
 		"SessionID":           fmt.Sprintf("%08X", c.session),
 		requestCodes[command]: string(data),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	resp, err := c.send(command, params)
+	resp, body, err := c.send(command, params)
 	if err != nil {
-		return resp, err
+		return nil, nil, err
 	}
 
-	return resp, nil
+	return resp, body, nil
 }
 
 func (c *Conn) Monitor(stream string, ch chan *Frame) error {
@@ -311,7 +296,7 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		return err
 	}
 
-	_, err = c.Command(codeOPMonitor, data)
+	_, _, err = c.Command(codeOPMonitor, data)
 	if err != nil {
 		panic(err)
 	}
@@ -332,7 +317,7 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		},
 	})
 
-	_, err = c.send(1410, data)
+	_, _, err = c.send(1410, data)
 	if err != nil {
 		panic(err)
 	}
@@ -356,32 +341,32 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 
 	return nil
 }
-func (c *Conn) setKeepAlive(aliveTime time.Duration) error {
+func (c *Conn) SetKeepAlive() error {
 	body, err := json.Marshal(map[string]string{
 		"Name":      "KeepAlive",
-		"SessionID": fmt.Sprintf("%08X", c.session),
+		"SessionID": fmt.Sprintf("%#08x", c.session),
 	})
 
 	if err != nil {
 		return err
 	}
 
-	_, err = c.send(codeKeepAlive, body)
+	_, _, err = c.send(codeKeepAlive, body)
 	if err != nil {
 		return err
 	}
 
-	time.AfterFunc(aliveTime, func() {
-		err := c.setKeepAlive(aliveTime)
+	time.AfterFunc(c.aliveTime, func() {
+		err := c.SetKeepAlive()
 		if err != nil {
-			panic(err) // TODO: panic ?
+			panic(err) // TODO: panic or not ?
 		}
 	})
 
 	return nil
 }
 
-func (c *Conn) send(msgID requestCode, data []byte) (*Payload, error) {
+func (c *Conn) send(msgID requestCode, data []byte) (*Payload, []byte, error) {
 	var buf bytes.Buffer
 
 	if err := binary.Write(&buf, binary.LittleEndian, Payload{
@@ -391,56 +376,79 @@ func (c *Conn) send(msgID requestCode, data []byte) (*Payload, error) {
 		SequenceNumber: c.packetSequence,
 		MsgID:          int16(msgID),
 		BodyLength:     int32(len(data)) + 2,
-		Body:           data,
-		MagicEnd:       magicEnd,
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	err := binary.Write(&buf, binary.LittleEndian, data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = binary.Write(&buf, binary.LittleEndian, magicEnd)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	c.cLock.Lock()
-	defer c.cLock.Lock()
+	defer c.cLock.Unlock()
 
-	_, err := c.c.Write(buf.Bytes())
+	_, err = c.c.Write(buf.Bytes())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	resp, err := c.recv()
+	resp, body, err := c.recv()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return resp, nil
+	return resp, body, nil
 }
 
-func (c *Conn) recv() (*Payload, error) {
+func (c *Conn) recv() (*Payload, []byte, error) {
 	var p Payload
-	err := binary.Read(c.c, binary.LittleEndian, &p)
+	var b = make([]byte, 20)
+
+	_, err := c.c.Read(b)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	err = binary.Read(bytes.NewReader(b), binary.LittleEndian, &p)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	c.packetSequence += 1
 
-	return &p, nil
+	body := make([]byte, p.BodyLength)
+	err = binary.Read(c.c, binary.LittleEndian, &body)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	body = body[:len(body)-2] // skip the magic bytes
+
+	return &p, body, nil
 }
 
 func (c *Conn) reassembleBinPayload() (*Frame, error) {
 	var length int32 = 0
 
 	for {
-		p, err := c.recv()
+		_, body, err := c.recv()
 		if err != nil {
 			return nil, err
 		}
 
-		body := bytes.NewReader(p.Body)
+		buf := bytes.NewReader(body)
 
 		var meta MetaInfo
 
 		if length == 0 {
 			var dataType uint32
-			err := binary.Read(body, binary.LittleEndian, &dataType)
+			err := binary.Read(buf, binary.LittleEndian, &dataType)
 			if err != nil {
 				return nil, err
 			}
@@ -456,7 +464,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					Length   int32
 				}{}
 
-				err = binary.Read(body, binary.LittleEndian, &frame)
+				err = binary.Read(buf, binary.LittleEndian, &frame)
 				if err != nil {
 					return nil, err
 				}
@@ -470,7 +478,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 				meta.Datetime = parseDatetime(int(frame.DateTime))
 			case 0x1FD:
 				// 4 bytes
-				err = binary.Read(body, binary.LittleEndian, &length)
+				err = binary.Read(buf, binary.LittleEndian, &length)
 				if err != nil {
 					return nil, err
 				}
@@ -483,7 +491,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					Length     int32
 				}{}
 
-				err = binary.Read(body, binary.LittleEndian, &packet)
+				err = binary.Read(buf, binary.LittleEndian, &packet)
 				if err != nil {
 					return nil, err
 				}
@@ -491,10 +499,8 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 				length = packet.Length
 				meta.Type = parseMediaType(dataType, packet.Media)
 			case 0xFFD8FFE0:
-				var buf []byte
-				_, err = body.Read(buf)
 				return &Frame{
-					Data: buf,
+					Data: body,
 					Meta: meta,
 				}, nil
 			default:
@@ -502,8 +508,8 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 			}
 		}
 
-		var buf []byte
-		n, err := body.Read(buf)
+		var left []byte
+		n, err := buf.Read(left)
 		if err != nil {
 			return nil, err
 		}
@@ -511,7 +517,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 		length -= int32(n)
 		if length == 0 {
 			return &Frame{
-				Data: buf,
+				Data: body,
 				Meta: meta,
 			}, nil
 		}
