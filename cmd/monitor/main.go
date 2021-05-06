@@ -12,26 +12,35 @@ import (
 )
 
 var (
-	address = flag.String("address", "192.168.1.147", "camera address: 192.168.1.147, 192.168.1.147:34567")
-	name    = flag.String("name", "camera1", "name of the camera")
-	outPath = flag.String("out", "./", "output path that video files will be kept")
+	address       = flag.String("address", "192.168.1.147", "camera address: 192.168.1.147, 192.168.1.147:34567")
+	name          = flag.String("name", "camera1", "name of the camera")
+	outPath       = flag.String("out", "./", "output path that video files will be kept")
+	chunkInterval = flag.Duration("chunkInterval", time.Minute*10, "time when application must create a new files")
+	stream        = flag.String("stream", "Main", "camera stream name")
 )
 
 func main() {
 	flag.Parse()
 
-	conn, err := dvrip.New(dvrip.Settings{
+	settings := dvrip.Settings{
 		Address: *address,
-	})
+	}
+
+	settings.SetDefaults()
+	log.Printf("DEBUG: using the following settings: %+v", settings)
+
+	conn, err := dvrip.New(settings)
 
 	if err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 
 	err = conn.Login()
 	if err != nil {
-		panic(err)
+		log.Fatal("failed to login", err)
 	}
+
+	log.Printf("DEBUG: successfully logged in: %+v", settings)
 
 	err = conn.SetKeepAlive()
 	if err != nil {
@@ -45,7 +54,7 @@ func main() {
 		var videoFile, audioFile *os.File
 
 		for frame := range outChan {
-			fmt.Println(frame.Meta)
+			log.Println(frame.Meta)
 
 			now := time.Now()
 			if chunkSize < now.Sub(prevTime) {
@@ -83,17 +92,17 @@ func main() {
 			} else if frame.Meta.Frame != "" {
 				videoFile.Write(frame.Data)
 			} else {
-				println("nor video or audio")
+				fmt.Println("WARNING: nor video or audio")
 			}
 		}
 
 		syncAndClose(videoFile)
 		syncAndClose(audioFile)
-	}(time.Minute * 10) // create a new file every 10 minutes
+	}(*chunkInterval)
 
-	err = conn.Monitor("Main", outChan)
+	err = conn.Monitor(*stream, outChan)
 	if err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 
 	s := make(chan os.Signal)
@@ -101,7 +110,8 @@ func main() {
 
 	select {
 	case <-s:
-		// gracefully stop
+		// TODO: gracefully stop
+		log.Println("stopping")
 		return
 	}
 }

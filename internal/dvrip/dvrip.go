@@ -109,7 +109,7 @@ var keyCodes = map[string]string{
 }
 
 type Conn struct {
-	settings Settings
+	settings *Settings
 
 	session        int32
 	packetSequence int32
@@ -161,7 +161,7 @@ type Settings struct {
 	WriteTimeout time.Duration
 }
 
-func (s *Settings) setDefaults() {
+func (s *Settings) SetDefaults() {
 	if s.User == "" {
 		s.User = "admin"
 	}
@@ -174,8 +174,8 @@ func (s *Settings) setDefaults() {
 		s.PasswordHash = sofiaHash(s.Password)
 	}
 
-	host, port, _ := net.SplitHostPort(s.Address)
-	if port == "" {
+	_, port, err := net.SplitHostPort(s.Address)
+	if err != nil {
 		switch s.Network {
 		case "tcp":
 			port = portTCP
@@ -184,10 +184,21 @@ func (s *Settings) setDefaults() {
 		default:
 			panic("invalid network: " + s.Network)
 		}
+
+		s.Address += ":" + port
 	}
 
-	s.Address = host + ":" + port
+	if s.DialTimout == 0 {
+		s.DialTimout = time.Minute
+	}
 
+	if s.ReadTimeout == 0 {
+		s.ReadTimeout = time.Minute
+	}
+
+	if s.WriteTimeout == 0 {
+		s.ReadTimeout = time.Minute
+	}
 }
 
 const alnum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -206,10 +217,8 @@ func sofiaHash(password string) string {
 
 func New(settings Settings) (*Conn, error) {
 	conn := Conn{
-		settings: settings,
+		settings: &settings,
 	}
-
-	settings.setDefaults()
 
 	var err error
 
