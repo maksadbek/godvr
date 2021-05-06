@@ -205,10 +205,10 @@ const alnum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 func sofiaHash(password string) string {
 	digest := md5.Sum([]byte(password))
-	hash := make([]byte, 8)
+	hash := make([]byte, 0, 8)
 
-	for i := 1; i < len(digest); i++ {
-		sum := int(digest[i] + digest[i-1])
+	for i := 1; i < len(digest); i += 2 {
+		sum := int(digest[i-1]) + int(digest[i])
 		hash = append(hash, alnum[sum%len(alnum)])
 	}
 

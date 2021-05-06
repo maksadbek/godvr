@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func TestSofiaHash(t *testing.T) {
+	password := "password"
+	hash := sofiaHash(password)
+
+	expectedHash := "mF95aD4o"
+
+	if hash != expectedHash {
+		t.Errorf("got %s, expected %s", hash, expectedHash)
+	}
+}
+
 func TestKeepAlive(t *testing.T) {
 	ln, err := net.Listen("tcp4", "")
 	if err != nil {
@@ -66,6 +77,7 @@ func TestKeepAlive(t *testing.T) {
 	}()
 
 	conn, err := New(Settings{
+		Network:  "tcp",
 		Address:  ln.Addr().String(),
 		User:     "foo",
 		Password: "bar",
@@ -126,6 +138,7 @@ func TestLogin(t *testing.T) {
 	}()
 
 	conn, err := New(Settings{
+		Network:  "tcp",
 		Address:  ln.Addr().String(),
 		User:     "foo",
 		Password: "bar",
