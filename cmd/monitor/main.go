@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"time"
@@ -9,15 +11,17 @@ import (
 	"godvr/internal/dvrip"
 )
 
+var (
+	address = flag.String("address", "192.168.1.147", "camera address: 192.168.1.147, 192.168.1.147:34567")
+	name    = flag.String("name", "camera1", "name of the camera")
+	outPath = flag.String("out", "./", "output path that video files will be kept")
+)
+
 func main() {
-	var (
-		address = os.Args[0]
-		name    = os.Args[1]
-		out     = os.Args[2]
-	)
+	flag.Parse()
 
 	conn, err := dvrip.New(dvrip.Settings{
-		Address: address,
+		Address: *address,
 	})
 
 	if err != nil {
@@ -27,6 +31,11 @@ func main() {
 	err = conn.Login()
 	if err != nil {
 		panic(err)
+	}
+
+	err = conn.SetKeepAlive()
+	if err != nil {
+		log.Fatal("failed to set keep alive:", err)
 	}
 
 	outChan := make(chan *dvrip.Frame)
@@ -50,17 +59,17 @@ func main() {
 					panic(err)
 				}
 
-				err = os.MkdirAll(out+"/"+name+now.Format("/2006/01/02/"), os.ModePerm)
+				err = os.MkdirAll(*outPath+"/"+(*name)+now.Format("/2006/01/02/"), os.ModePerm)
 				if err != nil {
 					panic(err)
 				}
 
-				videoFile, err = os.Create(out + "/" + name + now.Format("/2006/01/02/15.04.05.video"))
+				videoFile, err = os.Create(*outPath + "/" + (*name) + now.Format("/2006/01/02/15.04.05.video"))
 				if err != nil {
 					panic(err)
 				}
 
-				audioFile, err = os.Create(out + "/" + name + now.Format("/2006/01/02/15.04.05.audio"))
+				audioFile, err = os.Create(*outPath + "/" + (*name) + now.Format("/2006/01/02/15.04.05.audio"))
 				if err != nil {
 					panic(err)
 				}
