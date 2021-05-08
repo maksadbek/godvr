@@ -277,11 +277,11 @@ func (c *Conn) Login() error {
 	return nil
 }
 
-func (c *Conn) Command(command requestCode, data []byte) (*Payload, []byte, error) {
-	params, err := json.Marshal(map[string]string{
+func (c *Conn) Command(command requestCode, data interface{}) (*Payload, []byte, error) {
+	params, err := json.Marshal(map[string]interface{}{
 		"Name":                requestCodes[command],
 		"SessionID":           fmt.Sprintf("%08X", c.session),
-		requestCodes[command]: string(data),
+		requestCodes[command]: data,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -306,7 +306,7 @@ func (c *Conn) StopMonitor() {
 }
 
 func (c *Conn) Monitor(stream string, ch chan *Frame) error {
-	data, err := json.Marshal(map[string]interface{}{
+	_, _, err := c.Command(codeOPMonitor, map[string]interface{}{
 		"Action": "Claim",
 		"Parameter": map[string]interface{}{
 			"Channel":    0,
@@ -315,28 +315,22 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 			"TransMode":  "TCP",
 		},
 	})
-
-	if err != nil {
-		return err
-	}
-
-	_, _, err = c.Command(codeOPMonitor, data)
 	if err != nil {
 		panic(err)
 	}
 
 	// TODO: check resp
 
-	data, err = json.Marshal(map[string]interface{}{
+	data, err := json.Marshal(map[string]interface{}{
 		"Name":      "OPMonitor",
 		"SessionID": fmt.Sprintf("%08X", c.session),
 		"OPMonitor": map[string]interface{}{
 			"Action": "Start",
 			"Parameter": map[string]interface{}{
-				"Channel":     0,
-				"CombineMode": "NONE",
-				"StreamType":  stream,
-				"TransMode":   "TCP",
+				"Channel":    0,
+				"CombinMode": "NONE",
+				"StreamType": stream,
+				"TransMode":  "TCP",
 			},
 		},
 	})
