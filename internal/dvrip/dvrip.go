@@ -242,13 +242,18 @@ func (c *Conn) Login() error {
 		return err
 	}
 
-	_, body, err = c.send(codeLogin, body)
+	err = c.send(codeLogin, body)
+	if err != nil {
+		return err
+	}
+
+	_, resp, err := c.recv()
 	if err != nil {
 		return err
 	}
 
 	m := map[string]interface{}{}
-	err = json.Unmarshal(body, &m)
+	err = json.Unmarshal(resp, &m)
 	if err != nil {
 		return err
 	}
@@ -282,22 +287,32 @@ func (c *Conn) Command(command requestCode, data []byte) (*Payload, []byte, erro
 		return nil, nil, err
 	}
 
-	resp, body, err := c.send(command, params)
+	c.cLock.Lock()
+	defer c.cLock.Unlock()
+
+	err = c.send(command, params)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return resp, body, nil
+	resp, body, err := c.recv()
+
+	return resp, body, err
+}
+
+func (c *Conn) StopMonitor() {
+	println("stop monitor")
+	c.stopMonitor <- struct{}{}
 }
 
 func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 	data, err := json.Marshal(map[string]interface{}{
 		"Action": "Claim",
 		"Parameter": map[string]interface{}{
-			"Channel":     0,
-			"CombineMode": "NONE",
-			"StreamType":  stream,
-			"TransMode":   "TCP",
+			"Channel":    0,
+			"CombinMode": "NONE",
+			"StreamType": stream,
+			"TransMode":  "TCP",
 		},
 	})
 
@@ -326,7 +341,10 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		},
 	})
 
-	_, _, err = c.send(1410, data)
+	c.cLock.Lock()
+	defer c.cLock.Unlock()
+
+	err = c.send(1410, data)
 	if err != nil {
 		panic(err)
 	}
@@ -335,13 +353,16 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		for {
 			frame, err := c.reassembleBinPayload()
 			if err != nil {
-				println(err)
+				fmt.Println("error occured", err)
+				close(ch)
 				return
 			}
 
 			select {
 			case ch <- frame:
+				println("got frame")
 			case <-c.stopMonitor:
+				println("got stop monitor chan")
 				close(ch)
 				return
 			}
@@ -350,6 +371,7 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 
 	return nil
 }
+
 func (c *Conn) SetKeepAlive() error {
 	body, err := json.Marshal(map[string]string{
 		"Name":      "KeepAlive",
@@ -360,7 +382,10 @@ func (c *Conn) SetKeepAlive() error {
 		return err
 	}
 
-	_, _, err = c.send(codeKeepAlive, body)
+	c.cLock.Lock()
+	defer c.cLock.Unlock()
+
+	err = c.send(codeKeepAlive, body)
 	if err != nil {
 		return err
 	}
@@ -375,7 +400,7 @@ func (c *Conn) SetKeepAlive() error {
 	return nil
 }
 
-func (c *Conn) send(msgID requestCode, data []byte) (*Payload, []byte, error) {
+func (c *Conn) send(msgID requestCode, data []byte) error {
 	var buf bytes.Buffer
 
 	if err := binary.Write(&buf, binary.LittleEndian, Payload{
@@ -386,33 +411,25 @@ func (c *Conn) send(msgID requestCode, data []byte) (*Payload, []byte, error) {
 		MsgID:          int16(msgID),
 		BodyLength:     int32(len(data)) + 2,
 	}); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	err := binary.Write(&buf, binary.LittleEndian, data)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	err = binary.Write(&buf, binary.LittleEndian, magicEnd)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-
-	c.cLock.Lock()
-	defer c.cLock.Unlock()
 
 	_, err = c.c.Write(buf.Bytes())
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	resp, body, err := c.recv()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return resp, body, nil
+	return nil
 }
 
 func (c *Conn) recv() (*Payload, []byte, error) {
@@ -431,6 +448,7 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 	c.packetSequence += 1
 
+	println("bodylength", p.BodyLength)
 	body := make([]byte, p.BodyLength)
 	err = binary.Read(c.c, binary.LittleEndian, &body)
 	if err != nil {
@@ -457,7 +475,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 
 		if length == 0 {
 			var dataType uint32
-			err := binary.Read(buf, binary.LittleEndian, &dataType)
+			err := binary.Read(buf, binary.BigEndian, &dataType)
 			if err != nil {
 				return nil, err
 			}
