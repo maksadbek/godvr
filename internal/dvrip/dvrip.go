@@ -353,7 +353,7 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		for {
 			frame, err := c.reassembleBinPayload()
 			if err != nil {
-				fmt.Println("error occured", err)
+				fmt.Println("error occurred", err)
 				close(ch)
 				return
 			}
@@ -372,6 +372,12 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 	return nil
 }
 
+func (c *Conn) SetTime() error {
+	_, _, err := c.Command(codeOPTimeSetting, []byte(time.Now().Format("2006-01-02 15:04:05")))
+
+	return err
+}
+
 func (c *Conn) SetKeepAlive() error {
 	body, err := json.Marshal(map[string]string{
 		"Name":      "KeepAlive",
@@ -386,6 +392,11 @@ func (c *Conn) SetKeepAlive() error {
 	defer c.cLock.Unlock()
 
 	err = c.send(codeKeepAlive, body)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = c.recv()
 	if err != nil {
 		return err
 	}
@@ -448,7 +459,8 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 	c.packetSequence += 1
 
-	println("bodylength", p.BodyLength)
+	println("DEBUG: recv body length", p.BodyLength)
+
 	body := make([]byte, p.BodyLength)
 	err = binary.Read(c.c, binary.LittleEndian, &body)
 	if err != nil {
