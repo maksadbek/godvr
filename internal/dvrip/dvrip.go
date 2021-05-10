@@ -252,6 +252,8 @@ func (c *Conn) Login() error {
 		return err
 	}
 
+	resp = resp[:len(resp)-2] // skip the 0x0a and 0x00
+
 	m := map[string]interface{}{}
 	err = json.Unmarshal(resp, &m)
 	if err != nil {
@@ -296,6 +298,8 @@ func (c *Conn) Command(command requestCode, data interface{}) (*Payload, []byte,
 	}
 
 	resp, body, err := c.recv()
+
+	body = body[:len(body)-2] // skip the trailing 0x0a and 0x00 bytes
 
 	return resp, body, err
 }
@@ -446,8 +450,6 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 		return nil, nil, err
 	}
 
-	println("DEBUG: recv meta", b)
-
 	err = binary.Read(bytes.NewReader(b), binary.LittleEndian, &p)
 	if err != nil {
 		return nil, nil, err
@@ -455,17 +457,11 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 	c.packetSequence += 1
 
-	println("DEBUG: recv body length", p.BodyLength)
-
 	body := make([]byte, p.BodyLength)
 	err = binary.Read(c.c, binary.LittleEndian, &body)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	println("DEBUG: recv body", body[:25])
-
-	body = body[:len(body)-2] // skip the magic bytes
 
 	return &p, body, nil
 }
@@ -510,6 +506,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					meta.Frame = "I"
 				}
 
+				length = frame.Length
 				meta.Width = int(frame.Width) * 8
 				meta.Height = int(frame.Height) * 8
 				meta.Datetime = parseDatetime(int(frame.DateTime))
@@ -525,7 +522,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 				packet := struct {
 					Media      byte
 					SampleRate byte
-					Length     int32
+					Length     uint16
 				}{}
 
 				err = binary.Read(buf, binary.LittleEndian, &packet)
@@ -533,11 +530,11 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					return nil, err
 				}
 
-				length = packet.Length
+				length = int32(packet.Length)
 				meta.Type = parseMediaType(dataType, packet.Media)
 			case 0xFFD8FFE0:
 				return &Frame{
-					Data: body,
+					Data: data.Bytes(),
 					Meta: meta,
 				}, nil
 			default:
@@ -551,6 +548,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 		}
 
 		length -= int32(n)
+
 		if length == 0 {
 			frame := &Frame{
 				Data: data.Bytes(),
