@@ -115,10 +115,11 @@ type Conn struct {
 	packetSequence int32
 	aliveTime      time.Duration
 
-	c     net.Conn
-	cLock sync.Mutex
+	c    net.Conn
+	lock sync.Mutex
 
 	stopMonitor chan struct{}
+	MonitorErr  error
 }
 
 // Payload is a meta information about data that is going to be sent
@@ -289,8 +290,8 @@ func (c *Conn) Command(command requestCode, data interface{}) (*Payload, []byte,
 		return nil, nil, err
 	}
 
-	c.cLock.Lock()
-	defer c.cLock.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	err = c.send(command, params)
 	if err != nil {
@@ -298,7 +299,6 @@ func (c *Conn) Command(command requestCode, data interface{}) (*Payload, []byte,
 	}
 
 	resp, body, err := c.recv()
-
 	body = body[:len(body)-2] // skip the trailing 0x0a and 0x00 bytes
 
 	return resp, body, err
@@ -319,8 +319,9 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 			"TransMode":  "TCP",
 		},
 	})
+
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// TODO: check resp
@@ -339,28 +340,28 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		},
 	})
 
-	c.cLock.Lock()
-	defer c.cLock.Unlock()
+	c.lock.Lock()
 
 	err = c.send(1410, data)
 	if err != nil {
-		panic(err)
+		c.lock.Unlock()
+		return err
 	}
 
 	go func() {
+		defer c.lock.Unlock()
+
 		for {
 			frame, err := c.reassembleBinPayload()
 			if err != nil {
-				fmt.Println("error occurred", err)
+				c.MonitorErr = err
 				close(ch)
 				return
 			}
 
 			select {
 			case ch <- frame:
-				println("got frame")
 			case <-c.stopMonitor:
-				println("got stop monitor chan")
 				close(ch)
 				return
 			}
@@ -386,8 +387,8 @@ func (c *Conn) SetKeepAlive() error {
 		return err
 	}
 
-	c.cLock.Lock()
-	defer c.cLock.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	err = c.send(codeKeepAlive, body)
 	if err != nil {
@@ -399,12 +400,12 @@ func (c *Conn) SetKeepAlive() error {
 		return err
 	}
 
-	//time.AfterFunc(c.aliveTime, func() {
-	//	err := c.SetKeepAlive()
-	//	if err != nil {
-	//		panic(err) // TODO: panic or not ?
-	//	}
-	//})
+	time.AfterFunc(c.aliveTime, func() {
+		err := c.SetKeepAlive()
+		if err != nil {
+			panic(err) // TODO: panic or not ?
+		}
+	})
 
 	return nil
 }
