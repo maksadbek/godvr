@@ -17,13 +17,17 @@ var (
 	outPath       = flag.String("out", "./", "output path that video files will be kept")
 	chunkInterval = flag.Duration("chunkInterval", time.Minute*10, "time when application must create a new files")
 	stream        = flag.String("stream", "Main", "camera stream name")
+	user          = flag.String("user", "admin", "username")
+	password      = flag.String("password", "password", "password")
 )
 
 func main() {
 	flag.Parse()
 
 	settings := dvrip.Settings{
-		Address: *address,
+		Address:  *address,
+		User:     *user,
+		Password: *password,
 	}
 
 	settings.SetDefaults()
@@ -40,7 +44,7 @@ func main() {
 		log.Fatal("failed to login", err)
 	}
 
-	log.Printf("DEBUG: successfully logged in: %+v", settings)
+	log.Print("DEBUG: successfully logged in")
 
 	err = conn.SetKeepAlive()
 	if err != nil {
@@ -48,15 +52,16 @@ func main() {
 	}
 
 	outChan := make(chan *dvrip.Frame)
+	var videoFile, audioFile *os.File
 
 	go func(chunkSize time.Duration) {
-		var prevTime time.Time
-		var videoFile, audioFile *os.File
+		prevTime := time.Now()
+		videoFile, audioFile, err = createChunkFiles(time.Now())
 
 		for frame := range outChan {
 			log.Println(frame.Meta)
-
 			now := time.Now()
+
 			if chunkSize < now.Sub(prevTime) {
 				err = syncAndClose(videoFile)
 				if err != nil {
@@ -68,20 +73,8 @@ func main() {
 					panic(err)
 				}
 
-				err = os.MkdirAll(*outPath+"/"+(*name)+now.Format("/2006/01/02/"), os.ModePerm)
-				if err != nil {
-					panic(err)
-				}
-
-				videoFile, err = os.Create(*outPath + "/" + (*name) + now.Format("/2006/01/02/15.04.05.video"))
-				if err != nil {
-					panic(err)
-				}
-
-				audioFile, err = os.Create(*outPath + "/" + (*name) + now.Format("/2006/01/02/15.04.05.audio"))
-				if err != nil {
-					panic(err)
-				}
+				videoFile, audioFile, err = createChunkFiles(now)
+				prevTime = now
 			}
 
 			if frame.Meta.Type == "G711A" {
@@ -95,9 +88,6 @@ func main() {
 				fmt.Println("WARNING: nor video or audio")
 			}
 		}
-
-		syncAndClose(videoFile)
-		syncAndClose(audioFile)
 	}(*chunkInterval)
 
 	err = conn.Monitor(*stream, outChan)
@@ -110,8 +100,9 @@ func main() {
 
 	select {
 	case <-s:
-		// TODO: gracefully stop
 		log.Println("stopping")
+		syncAndClose(videoFile)
+		syncAndClose(audioFile)
 		return
 	}
 }
@@ -128,4 +119,23 @@ func syncAndClose(f *os.File) error {
 	}
 
 	return nil
+}
+
+func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
+	err := os.MkdirAll(*outPath+"/"+(*name)+t.Format("/2006/01/02/"), os.ModePerm)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	videoFile, err := os.Create(*outPath + "/" + (*name) + t.Format("/2006/01/02/15.04.05.video"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	audioFile, err := os.Create(*outPath + "/" + (*name) + t.Format("/2006/01/02/15.04.05.audio"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return videoFile, audioFile, nil
 }

@@ -197,7 +197,7 @@ func (s *Settings) SetDefaults() {
 	}
 
 	if s.WriteTimeout == 0 {
-		s.ReadTimeout = time.Minute
+		s.WriteTimeout = time.Minute
 	}
 }
 
@@ -395,12 +395,12 @@ func (c *Conn) SetKeepAlive() error {
 		return err
 	}
 
-	time.AfterFunc(c.aliveTime, func() {
-		err := c.SetKeepAlive()
-		if err != nil {
-			panic(err) // TODO: panic or not ?
-		}
-	})
+	//time.AfterFunc(c.aliveTime, func() {
+	//	err := c.SetKeepAlive()
+	//	if err != nil {
+	//		panic(err) // TODO: panic or not ?
+	//	}
+	//})
 
 	return nil
 }
@@ -446,6 +446,8 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 		return nil, nil, err
 	}
 
+	println("DEBUG: recv meta", b)
+
 	err = binary.Read(bytes.NewReader(b), binary.LittleEndian, &p)
 	if err != nil {
 		return nil, nil, err
@@ -461,6 +463,8 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 		return nil, nil, err
 	}
 
+	println("DEBUG: recv body", body[:25])
+
 	body = body[:len(body)-2] // skip the magic bytes
 
 	return &p, body, nil
@@ -468,6 +472,8 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 func (c *Conn) reassembleBinPayload() (*Frame, error) {
 	var length int32 = 0
+	var data bytes.Buffer
+	var meta MetaInfo
 
 	for {
 		_, body, err := c.recv()
@@ -477,11 +483,9 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 
 		buf := bytes.NewReader(body)
 
-		var meta MetaInfo
-
 		if length == 0 {
 			var dataType uint32
-			err := binary.Read(buf, binary.BigEndian, &dataType)
+			err = binary.Read(buf, binary.BigEndian, &dataType)
 			if err != nil {
 				return nil, err
 			}
@@ -541,18 +545,19 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 			}
 		}
 
-		var left []byte
-		n, err := buf.Read(left)
+		n, err := buf.WriteTo(&data)
 		if err != nil {
 			return nil, err
 		}
 
 		length -= int32(n)
 		if length == 0 {
-			return &Frame{
-				Data: body,
+			frame := &Frame{
+				Data: data.Bytes(),
 				Meta: meta,
-			}, nil
+			}
+
+			return frame, nil
 		}
 	}
 }
