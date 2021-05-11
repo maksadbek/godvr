@@ -83,7 +83,7 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
-	stop := make(chan os.Signal)
+	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, os.Kill)
 
 	videoFile, audioFile, err = createChunkFiles(time.Now())
