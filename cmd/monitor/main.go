@@ -36,15 +36,14 @@ func main() {
 
 	for {
 		err := monitor(settings)
-		if err != nil {
-			log.Print("error: ", err)
-			log.Printf("waiting %v and try again", *retryTime)
-
-			time.Sleep(*retryTime)
-			continue
-		} else {
+		if err == nil {
 			break
 		}
+
+		log.Print("fatal error: ", err)
+		log.Printf("wait %v and try again", *retryTime)
+
+		time.Sleep(*retryTime)
 	}
 }
 
@@ -65,7 +64,7 @@ func monitor(settings dvrip.Settings) error {
 
 	err = conn.SetKeepAlive()
 	if err != nil {
-		log.Fatal("failed to set keep alive:", err)
+		log.Print("failed to set keep alive:", err)
 		return err
 	}
 
@@ -74,30 +73,30 @@ func monitor(settings dvrip.Settings) error {
 
 	err = conn.Monitor(*stream, outChan)
 	if err != nil {
-		log.Println("failed to start monitoring:", err)
+		log.Print("failed to start monitoring:", err)
 		return err
 	}
 
 	stop := make(chan os.Signal)
 	signal.Notify(stop, os.Interrupt, os.Kill)
 
-	prevTime := time.Now()
 	videoFile, audioFile, err = createChunkFiles(time.Now())
 	if err != nil {
 		return err
 	}
 
+	prevTime := time.Now()
+
 	for {
 		select {
 		case frame, ok := <-outChan:
 			if !ok {
-				fmt.Println("channel closed", conn.MonitorErr)
 				return conn.MonitorErr
 			}
 
 			now := time.Now()
 
-			if *chunkInterval < now.Sub(prevTime) {
+			if prevTime.Add(*chunkInterval).After(now) {
 				errs := syncClose(videoFile, audioFile)
 				if err != nil {
 					log.Printf("error occurred: %v", errs)
@@ -107,9 +106,9 @@ func monitor(settings dvrip.Settings) error {
 				prevTime = now
 			}
 
-			err := processFrame(frame, audioFile, videoFile)
+			err = processFrame(frame, audioFile, videoFile)
 			if err != nil {
-				fmt.Println("failed to process the frame", err)
+				log.Println("failed to process the frame", err)
 				return err
 			}
 		case <-stop:
@@ -130,10 +129,10 @@ func monitor(settings dvrip.Settings) error {
 func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 	log.Println("received frame with meta info:", frame.Meta)
 
-	if frame.Meta.Type == "G711A" {
+	if frame.Meta.Type == "G711A" { // audio
 		_, err := audioFile.Write(frame.Data)
 		if err != nil {
-			fmt.Println("WARNING: failed to write to file", err)
+			log.Println("WARNING: failed to write to file", err)
 		}
 
 		return nil
@@ -142,7 +141,7 @@ func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 	if frame.Meta.Frame != "" {
 		_, err := videoFile.Write(frame.Data)
 		if err != nil {
-			fmt.Println("WARNING: failed to write to file", err)
+			log.Println("WARNING: failed to write to file", err)
 		}
 
 		return nil
