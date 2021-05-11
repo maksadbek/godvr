@@ -103,7 +103,7 @@ func monitor(settings dvrip.Settings) error {
 			now := time.Now()
 
 			if prevTime.Add(*chunkInterval).After(now) {
-				errs := syncClose(videoFile, audioFile)
+				errs := closeFiles(videoFile, audioFile)
 				if err != nil {
 					log.Printf("error occurred: %v", errs)
 				}
@@ -120,7 +120,7 @@ func monitor(settings dvrip.Settings) error {
 		case <-stop:
 			log.Println("received interrupt signal: stopping")
 
-			errs := syncClose(videoFile, audioFile)
+			errs := closeFiles(videoFile, audioFile)
 			if err != nil {
 				log.Printf("error occurred: %v", errs)
 			}
@@ -156,14 +156,9 @@ func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 	return nil // TODO
 }
 
-func syncClose(files ...*os.File) (errs []error) {
+func closeFiles(files ...*os.File) (errs []error) {
 	for _, f := range files {
-		err := f.Sync()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to sync file: %v cause: %v", f.Name(), err))
-		}
-
-		err = f.Close()
+		err := f.Close()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to close file: %v cause: %v", f.Name(), err))
 		}
