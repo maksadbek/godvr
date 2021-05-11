@@ -403,7 +403,8 @@ func (c *Conn) SetKeepAlive() error {
 	time.AfterFunc(c.aliveTime, func() {
 		err := c.SetKeepAlive()
 		if err != nil {
-			panic(err) // TODO: panic or not ?
+			fmt.Println("failed SetKeepAlive:", err)
+			return
 		}
 	})
 

@@ -19,6 +19,7 @@ var (
 	stream        = flag.String("stream", "Main", "camera stream name")
 	user          = flag.String("user", "admin", "username")
 	password      = flag.String("password", "password", "password")
+	retryTime     = flag.Duration("retryTime", time.Minute, "retry to connect if problem occur")
 )
 
 func main() {
@@ -33,15 +34,31 @@ func main() {
 	settings.SetDefaults()
 	log.Printf("DEBUG: using the following settings: %+v", settings)
 
+	for {
+		err := monitor(settings)
+		if err != nil {
+			log.Print("error: ", err)
+			log.Printf("waiting %v and try again", *retryTime)
+
+			time.Sleep(*retryTime)
+			continue
+		} else {
+			break
+		}
+	}
+}
+
+func monitor(settings dvrip.Settings) error {
 	conn, err := dvrip.New(settings)
 	if err != nil {
-		log.Panicf("failed to initiatiate connection: %v", err)
+		log.Printf("failed to initiatiate connection: %v", err)
+		return err
 	}
 
-again:
 	err = conn.Login()
 	if err != nil {
-		log.Fatal("failed to login", err)
+		log.Panic("failed to login", err)
+		return err
 	}
 
 	log.Print("DEBUG: successfully logged in")
@@ -49,90 +66,105 @@ again:
 	err = conn.SetKeepAlive()
 	if err != nil {
 		log.Fatal("failed to set keep alive:", err)
+		return err
 	}
 
 	outChan := make(chan *dvrip.Frame)
 	var videoFile, audioFile *os.File
-	var errChan = make(chan error, 1)
 
-	go func(chunkSize time.Duration) {
-		prevTime := time.Now()
-		videoFile, audioFile, err = createChunkFiles(time.Now())
+	err = conn.Monitor(*stream, outChan)
+	if err != nil {
+		log.Println("failed to start monitoring:", err)
+		return err
+	}
 
-		for frame := range outChan {
-			log.Println(frame.Meta)
+	stop := make(chan os.Signal)
+	signal.Notify(stop, os.Interrupt, os.Kill)
+
+	prevTime := time.Now()
+	videoFile, audioFile, err = createChunkFiles(time.Now())
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case frame, ok := <-outChan:
+			if !ok {
+				fmt.Println("channel closed", conn.MonitorErr)
+				return conn.MonitorErr
+			}
+
 			now := time.Now()
 
-			if chunkSize < now.Sub(prevTime) {
-				err = syncAndClose(videoFile)
+			if *chunkInterval < now.Sub(prevTime) {
+				errs := syncClose(videoFile, audioFile)
 				if err != nil {
-					fmt.Println("failed to sync and close file", err)
-				}
-
-				err = syncAndClose(audioFile)
-				if err != nil {
-					fmt.Println("failed to sync and close file", err)
+					log.Printf("error occurred: %v", errs)
 				}
 
 				videoFile, audioFile, err = createChunkFiles(now)
 				prevTime = now
 			}
 
-			if frame.Meta.Type == "G711A" {
-				_, err = audioFile.Write(frame.Data)
-				if err != nil {
-					fmt.Println("WARNING: failed to write to file", err)
-				}
-			} else if frame.Meta.Frame != "" {
-				_, err = videoFile.Write(frame.Data)
-				if err != nil {
-					fmt.Println("WARNING: failed to write to file", err)
-				}
-			} else {
-				fmt.Println("WARNING: nor video or audio")
+			err := processFrame(frame, audioFile, videoFile)
+			if err != nil {
+				fmt.Println("failed to process the frame", err)
+				return err
 			}
+		case <-stop:
+			log.Println("received interrupt signal: stopping")
+
+			errs := syncClose(videoFile, audioFile)
+			if err != nil {
+				log.Printf("error occurred: %v", errs)
+			}
+
+			return nil
 		}
-
-		if conn.MonitorErr != nil {
-			fmt.Println("error occurred", conn.MonitorErr)
-			errChan <- conn.MonitorErr
-		}
-	}(*chunkInterval)
-
-	err = conn.Monitor(*stream, outChan)
-	if err != nil {
-		log.Println("failed to start monitoring:", err)
-	}
-
-	s := make(chan os.Signal)
-	signal.Notify(s, os.Interrupt, os.Kill)
-
-	log.Println("listening interrupt")
-
-	select {
-	case <-errChan:
-		log.Println("try again")
-		goto again
-	case <-s:
-		log.Println("stopping")
-		syncAndClose(videoFile)
-		syncAndClose(audioFile)
-		return
-	}
-}
-
-func syncAndClose(f *os.File) error {
-	err := f.Sync()
-	if err != nil {
-		return err
-	}
-
-	err = f.Close()
-	if err != nil {
-		return err
 	}
 
 	return nil
+}
+
+func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
+	log.Println("received frame with meta info:", frame.Meta)
+
+	if frame.Meta.Type == "G711A" {
+		_, err := audioFile.Write(frame.Data)
+		if err != nil {
+			fmt.Println("WARNING: failed to write to file", err)
+		}
+
+		return nil
+	}
+
+	if frame.Meta.Frame != "" {
+		_, err := videoFile.Write(frame.Data)
+		if err != nil {
+			fmt.Println("WARNING: failed to write to file", err)
+		}
+
+		return nil
+	}
+
+	return nil // TODO
+}
+
+func syncClose(files ...*os.File) (errs []error) {
+	for _, f := range files {
+		err := f.Sync()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to sync file: %v cause: %v", f.Name(), err))
+		}
+
+		err = f.Close()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to close file: %v cause: %v", f.Name(), err))
+		}
+	}
+
+	return
 }
 
 func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
