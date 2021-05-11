@@ -68,6 +68,12 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
+	err = conn.SetTime()
+	if err != nil {
+		log.Print("failed to set time:", err)
+		return err
+	}
+
 	outChan := make(chan *dvrip.Frame)
 	var videoFile, audioFile *os.File
 
