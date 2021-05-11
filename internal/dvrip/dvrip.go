@@ -93,7 +93,8 @@ const (
 )
 
 var requestCodes = map[requestCode]string{
-	codeOPMonitor: "OPMonitor",
+	codeOPMonitor:     "OPMonitor",
+	codeOPTimeSetting: "OPTimeSetting",
 }
 
 var keyCodes = map[string]string{
@@ -372,7 +373,7 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 }
 
 func (c *Conn) SetTime() error {
-	_, _, err := c.Command(codeOPTimeSetting, []byte(time.Now().Format("2006-01-02 15:04:05")))
+	_, _, err := c.Command(codeOPTimeSetting, time.Now().Format("2006-01-02 15:04:05"))
 
 	return err
 }
@@ -469,7 +470,7 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 }
 
 func (c *Conn) reassembleBinPayload() (*Frame, error) {
-	var length int32 = 0
+	var length uint32 = 0
 	var data bytes.Buffer
 	var meta MetaInfo
 
@@ -495,8 +496,8 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					FPS      byte
 					Width    byte
 					Height   byte
-					DateTime int32
-					Length   int32
+					DateTime uint32
+					Length   uint32
 				}{}
 
 				err = binary.Read(buf, binary.LittleEndian, &frame)
@@ -511,7 +512,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 				length = frame.Length
 				meta.Width = int(frame.Width) * 8
 				meta.Height = int(frame.Height) * 8
-				meta.Datetime = parseDatetime(int(frame.DateTime))
+				meta.Datetime = parseDatetime(frame.DateTime)
 			case 0x1FD:
 				// 4 bytes
 				err = binary.Read(buf, binary.LittleEndian, &length)
@@ -532,7 +533,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 					return nil, err
 				}
 
-				length = int32(packet.Length)
+				length = uint32(packet.Length)
 				meta.Type = parseMediaType(dataType, packet.Media)
 			case 0xFFD8FFE0:
 				return &Frame{
@@ -549,7 +550,7 @@ func (c *Conn) reassembleBinPayload() (*Frame, error) {
 			return nil, err
 		}
 
-		length -= int32(n)
+		length -= uint32(n)
 
 		if length == 0 {
 			frame := &Frame{
@@ -592,13 +593,13 @@ func parseMediaType(dataType uint32, mediaCode byte) string {
 	return "unexpected"
 }
 
-func parseDatetime(value int) time.Time {
-	second := value & 0x3F
-	minute := (value & 0xFC0) >> 6
-	hour := (value & 0x1F000) >> 12
-	day := (value & 0x3E0000) >> 17
-	month := (value & 0x3C00000) >> 22
-	year := ((value & 0xFC000000) >> 26) + 2000
+func parseDatetime(value uint32) time.Time {
+	second := int(value & 0x3F)
+	minute := int((value & 0xFC0) >> 6)
+	hour := int((value & 0x1F000) >> 12)
+	day := int((value & 0x3E0000) >> 17)
+	month := int((value & 0x3C00000) >> 22)
+	year := int(((value & 0xFC000000) >> 26) + 2000)
 
 	return time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
 }
