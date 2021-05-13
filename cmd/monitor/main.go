@@ -19,7 +19,7 @@ var (
 	chunkInterval = flag.Duration("chunkInterval", time.Minute*10, "time when application must create a new files")
 	stream        = flag.String("stream", "Main", "camera stream name")
 	user          = flag.String("user", "admin", "username")
-	password      = flag.String("password", "password", "password")
+	password      = flag.String("password", "", "password for the user")
 	retryTime     = flag.Duration("retryTime", time.Second*5, "retry to connect if problem occur")
 )
 
@@ -47,7 +47,7 @@ func main() {
 		}
 
 		log.Print("fatal error: ", err)
-		log.Printf("connection lost, wait %v and try again", *retryTime)
+		log.Printf("camera is lost, wait %v and try again", *retryTime)
 
 		time.Sleep(*retryTime)
 	}
@@ -62,7 +62,7 @@ func monitor(settings dvrip.Settings) error {
 
 	err = conn.Login()
 	if err != nil {
-		log.Panic("failed to login", err)
+		log.Print("failed to login: ", err)
 		return err
 	}
 
@@ -139,15 +139,13 @@ func monitor(settings dvrip.Settings) error {
 			return nil
 		}
 	}
-
-	return nil
 }
 
 func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 	if frame.Meta.Type == "G711A" { // audio
 		_, err := audioFile.Write(frame.Data)
 		if err != nil {
-			log.Println("WARNING: failed to write to file", err)
+			log.Println("warning: failed to write to file", err)
 		}
 
 		return nil
@@ -156,7 +154,7 @@ func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 	if frame.Meta.Frame != "" {
 		_, err := videoFile.Write(frame.Data)
 		if err != nil {
-			log.Println("WARNING: failed to write to file", err)
+			log.Println("warning: failed to write to file", err)
 		}
 
 		return nil
