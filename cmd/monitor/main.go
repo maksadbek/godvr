@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -29,6 +30,11 @@ func main() {
 		Address:  *address,
 		User:     *user,
 		Password: *password,
+	}
+
+	err := setupLogs()
+	if err != nil {
+		log.Print("WARNING: failed to setup log file:", err)
 	}
 
 	settings.SetDefaults()
@@ -64,15 +70,19 @@ func monitor(settings dvrip.Settings) error {
 
 	err = conn.SetKeepAlive()
 	if err != nil {
-		log.Print("failed to set keep alive:", err)
+		log.Print("failed to set keepalive:", err)
 		return err
 	}
+
+	log.Print("DEBUG: successfully set keepalive")
 
 	err = conn.SetTime()
 	if err != nil {
 		log.Print("failed to set time:", err)
 		return err
 	}
+
+	log.Print("DEBUG: successfully synced time")
 
 	outChan := make(chan *dvrip.Frame)
 	var videoFile, audioFile *os.File
@@ -133,8 +143,6 @@ func monitor(settings dvrip.Settings) error {
 }
 
 func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
-	log.Println("received frame with meta info:", frame.Meta)
-
 	if frame.Meta.Type == "G711A" { // audio
 		_, err := audioFile.Write(frame.Data)
 		if err != nil {
@@ -168,20 +176,43 @@ func closeFiles(files ...*os.File) (errs []error) {
 }
 
 func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
-	err := os.MkdirAll(*outPath+"/"+(*name)+t.Format("/2006/01/02/"), os.ModePerm)
+	dir := *outPath + "/" + (*name) + t.Format("/2006/01/02/")
+
+	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	videoFile, err := os.Create(*outPath + "/" + (*name) + t.Format("/2006/01/02/15.04.05.video"))
+	file := *outPath + "/" + (*name) + t.Format("/2006/01/02/15.04.05")
+	log.Print("starting files:", file)
+
+	videoFile, err := os.Create(file + ".video")
 	if err != nil {
 		return nil, nil, err
 	}
 
-	audioFile, err := os.Create(*outPath + "/" + (*name) + t.Format("/2006/01/02/15.04.05.audio"))
+	audioFile, err := os.Create(file + ".audio")
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return videoFile, audioFile, nil
+}
+
+func setupLogs() error {
+	outDir := *outPath + "/" + *name
+	err := os.Mkdir(outDir, os.ModeDir)
+
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+
+	logsFile, err := os.OpenFile(outDir+"/"+"logs.log", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+
+	log.SetOutput(logsFile)
+
+	return nil
 }
