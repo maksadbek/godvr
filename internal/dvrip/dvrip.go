@@ -463,7 +463,7 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 	c.packetSequence += 1
 
-	if p.BodyLength < 0 || p.BodyLength < 100000 {
+	if p.BodyLength <= 0 || p.BodyLength >= 100000 {
 		return nil, nil, fmt.Errorf("invalid bodylength: %v", p.BodyLength)
 	}
 
