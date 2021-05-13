@@ -191,15 +191,15 @@ func (s *Settings) SetDefaults() {
 	}
 
 	if s.DialTimout == 0 {
-		s.DialTimout = time.Minute
+		s.DialTimout = time.Second * 5
 	}
 
 	if s.ReadTimeout == 0 {
-		s.ReadTimeout = time.Minute
+		s.ReadTimeout = time.Second * 5
 	}
 
 	if s.WriteTimeout == 0 {
-		s.WriteTimeout = time.Minute
+		s.WriteTimeout = time.Second * 5
 	}
 }
 
@@ -306,7 +306,6 @@ func (c *Conn) Command(command requestCode, data interface{}) (*Payload, []byte,
 }
 
 func (c *Conn) StopMonitor() {
-	println("stop monitor")
 	c.stopMonitor <- struct{}{}
 }
 
@@ -404,7 +403,6 @@ func (c *Conn) SetKeepAlive() error {
 	time.AfterFunc(c.aliveTime, func() {
 		err := c.SetKeepAlive()
 		if err != nil {
-			fmt.Println("failed SetKeepAlive:", err)
 			return
 		}
 	})
