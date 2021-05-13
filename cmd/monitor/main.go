@@ -112,7 +112,7 @@ func monitor(settings dvrip.Settings) error {
 
 			now := time.Now()
 
-			if prevTime.Add(*chunkInterval).After(now) {
+			if prevTime.Add(*chunkInterval).Before(now) {
 				errs := closeFiles(videoFile, audioFile)
 				if err != nil {
 					log.Printf("error occurred: %v", errs)
