@@ -424,16 +424,19 @@ func (c *Conn) send(msgID requestCode, data []byte) error {
 		return err
 	}
 
+	c.c.SetWriteDeadline(time.Now().Add(c.settings.WriteTimeout))
 	err := binary.Write(&buf, binary.LittleEndian, data)
 	if err != nil {
 		return err
 	}
 
+	c.c.SetWriteDeadline(time.Now().Add(c.settings.WriteTimeout))
 	err = binary.Write(&buf, binary.LittleEndian, magicEnd)
 	if err != nil {
 		return err
 	}
 
+	c.c.SetWriteDeadline(time.Now().Add(c.settings.WriteTimeout))
 	_, err = c.c.Write(buf.Bytes())
 	if err != nil {
 		return err
@@ -446,11 +449,13 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 	var p Payload
 	var b = make([]byte, 20)
 
+	c.c.SetReadDeadline(time.Now().Add(c.settings.ReadTimeout))
 	_, err := c.c.Read(b)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	c.c.SetReadDeadline(time.Now().Add(c.settings.ReadTimeout))
 	err = binary.Read(bytes.NewReader(b), binary.LittleEndian, &p)
 	if err != nil {
 		return nil, nil, err
