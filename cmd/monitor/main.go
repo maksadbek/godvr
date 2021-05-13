@@ -20,7 +20,7 @@ var (
 	stream        = flag.String("stream", "Main", "camera stream name")
 	user          = flag.String("user", "admin", "username")
 	password      = flag.String("password", "password", "password")
-	retryTime     = flag.Duration("retryTime", time.Minute, "retry to connect if problem occur")
+	retryTime     = flag.Duration("retryTime", time.Second*5, "retry to connect if problem occur")
 )
 
 func main() {
@@ -34,11 +34,11 @@ func main() {
 
 	err := setupLogs()
 	if err != nil {
-		log.Print("WARNING: failed to setup log file:", err)
+		log.Print("warning: failed to setup a log file:", err)
 	}
 
 	settings.SetDefaults()
-	log.Printf("DEBUG: using the following settings: %+v", settings)
+	log.Printf("using the following settings: %+v", settings)
 
 	for {
 		err := monitor(settings)
@@ -47,7 +47,7 @@ func main() {
 		}
 
 		log.Print("fatal error: ", err)
-		log.Printf("wait %v and try again", *retryTime)
+		log.Printf("connection lost, wait %v and try again", *retryTime)
 
 		time.Sleep(*retryTime)
 	}
@@ -66,7 +66,7 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
-	log.Print("DEBUG: successfully logged in")
+	log.Print("successfully logged in")
 
 	err = conn.SetKeepAlive()
 	if err != nil {
@@ -74,7 +74,7 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
-	log.Print("DEBUG: successfully set keepalive")
+	log.Print("successfully set keepalive")
 
 	err = conn.SetTime()
 	if err != nil {
@@ -82,7 +82,7 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
-	log.Print("DEBUG: successfully synced time")
+	log.Print("successfully synced time")
 
 	outChan := make(chan *dvrip.Frame)
 	var videoFile, audioFile *os.File
@@ -135,6 +135,7 @@ func monitor(settings dvrip.Settings) error {
 				log.Printf("error occurred: %v", errs)
 			}
 
+			log.Print("done")
 			return nil
 		}
 	}
