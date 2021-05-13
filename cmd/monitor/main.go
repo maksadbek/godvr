@@ -21,6 +21,7 @@ var (
 	user          = flag.String("user", "admin", "username")
 	password      = flag.String("password", "", "password for the user")
 	retryTime     = flag.Duration("retryTime", time.Second*5, "retry to connect if problem occur")
+	debugMode     = flag.Bool("debug", false, "debug mode")
 )
 
 func main() {
@@ -46,17 +47,27 @@ func main() {
 			break
 		}
 
-		log.Print("fatal error: ", err)
+		debugf("fatal error: ", err)
 		log.Printf("camera is lost, wait %v and try again", *retryTime)
 
 		time.Sleep(*retryTime)
 	}
 }
 
+func debugf(msg string, args ...interface{}) {
+	if *debugMode {
+		if len(args) == 0 {
+			log.Print(msg)
+		} else {
+			log.Printf(msg, args...)
+		}
+	}
+}
+
 func monitor(settings dvrip.Settings) error {
 	conn, err := dvrip.New(settings)
 	if err != nil {
-		log.Printf("failed to initiatiate connection: %v", err)
+		debugf("failed to initiatiate connection: %v", err)
 		return err
 	}
 
