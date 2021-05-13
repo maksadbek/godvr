@@ -458,6 +458,10 @@ func (c *Conn) recv() (*Payload, []byte, error) {
 
 	c.packetSequence += 1
 
+	if p.BodyLength < 0 || p.BodyLength < 100000 {
+		return nil, nil, fmt.Errorf("invalid bodylength: %v", p.BodyLength)
+	}
+
 	body := make([]byte, p.BodyLength)
 	err = binary.Read(c.c, binary.LittleEndian, &body)
 	if err != nil {
