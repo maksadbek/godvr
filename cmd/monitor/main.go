@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -42,8 +43,20 @@ func main() {
 	settings.SetDefaults()
 	log.Printf("using the following settings: %+v", settings)
 
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, os.Kill)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-stop:
+			fmt.Println("received interrupt signal")
+			cancel()
+		}
+	}()
+
 	for {
-		err := monitor(settings)
+		err := monitor(ctx, settings)
 		if err == nil {
 			break
 		}
@@ -51,8 +64,14 @@ func main() {
 		debugf("fatal error: %v", err)
 		log.Printf("camera is lost, wait %v and try again", *retryTime)
 
-		time.Sleep(*retryTime)
+		select {
+		case <-time.Tick(*retryTime):
+		case <-ctx.Done():
+			log.Print("done")
+			return
+		}
 	}
+
 }
 
 func debugf(msg string, args ...interface{}) {
@@ -61,10 +80,10 @@ func debugf(msg string, args ...interface{}) {
 	}
 }
 
-func monitor(settings dvrip.Settings) error {
-	conn, err := dvrip.New(settings)
+func monitor(ctx context.Context, settings dvrip.Settings) error {
+	conn, err := dvrip.New(ctx, settings)
 	if err != nil {
-		debugf("failed to initiatiate connection: %v", err)
+		debugf("failed to initiate connection: %v", err)
 		return err
 	}
 
@@ -101,9 +120,6 @@ func monitor(settings dvrip.Settings) error {
 		return err
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, os.Kill)
-
 	videoFile, audioFile, err = createChunkFiles(time.Now())
 	if err != nil {
 		return err
@@ -131,9 +147,7 @@ func monitor(settings dvrip.Settings) error {
 			}
 
 			processFrame(frame, audioFile, videoFile)
-		case <-stop:
-			log.Println("received interrupt signal: stopping")
-
+		case <-ctx.Done():
 			errs := closeFiles(videoFile, audioFile)
 			if err != nil {
 				log.Printf("error occurred: %v", errs)

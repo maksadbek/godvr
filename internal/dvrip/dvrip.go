@@ -2,6 +2,7 @@ package dvrip
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/json"
@@ -219,14 +220,20 @@ func sofiaHash(password string) string {
 	return string(hash)
 }
 
-func New(settings Settings) (*Conn, error) {
+func New(ctx context.Context, settings Settings) (*Conn, error) {
 	conn := Conn{
 		settings: &settings,
 	}
 
-	var err error
+	var (
+		err    error
+		dialer net.Dialer
+	)
 
-	conn.c, err = net.DialTimeout(settings.Network, settings.Address, settings.DialTimout)
+	ctx, cancel := context.WithTimeout(ctx, settings.DialTimout)
+	defer cancel()
+
+	conn.c, err = dialer.DialContext(ctx, settings.Network, settings.Address)
 	if err != nil {
 		return nil, err
 	}
