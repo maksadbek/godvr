@@ -195,7 +195,7 @@ func closeFiles(files ...*os.File) (errs []error) {
 func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
 	dir := *outPath + "/" + (*name) + t.Format("/2006/01/02/")
 
-	err := os.MkdirAll(dir, os.ModePerm)
+	err := os.MkdirAll(dir, os.ModeDir)
 	if err != nil {
 		return nil, nil, err
 	}
