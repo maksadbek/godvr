@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -157,6 +158,7 @@ type Settings struct {
 	User         string
 	Password     string
 	PasswordHash string
+	Debug        bool
 
 	DialTimout   time.Duration
 	ReadTimeout  time.Duration
@@ -354,9 +356,23 @@ func (c *Conn) Monitor(stream string, ch chan *Frame) error {
 		for {
 			frame, err := c.reassembleBinPayload()
 			if err != nil {
-				c.MonitorErr = err
-				close(ch)
-				return
+				if errors.Is(err, net.ErrClosed) {
+					c.MonitorErr = err
+					close(ch)
+					return
+				}
+
+				if err, ok := err.(net.Error); ok && err.Timeout() {
+					c.MonitorErr = err
+					close(ch)
+					return
+				}
+
+				if c.settings.Debug {
+					fmt.Printf("error while reassembleBinPayload: %v", err)
+				}
+
+				continue
 			}
 
 			select {
@@ -403,6 +419,10 @@ func (c *Conn) SetKeepAlive() error {
 	time.AfterFunc(c.aliveTime, func() {
 		err := c.SetKeepAlive()
 		if err != nil {
+			if c.settings.Debug {
+				fmt.Printf("failed to setKeepAlive: %v", err)
+			}
+
 			return
 		}
 	})

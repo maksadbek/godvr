@@ -31,6 +31,7 @@ func main() {
 		Address:  *address,
 		User:     *user,
 		Password: *password,
+		Debug:    *debugMode,
 	}
 
 	err := setupLogs()

@@ -22,6 +22,9 @@ Usage of ./monitor:
     	camera stream name (default "Main")
   -user string
     	username (default "admin")
-$ ./monitor -address 192.168.1.147 -name camera1 -out /recordings
+$ ./monitor -debug -address 192.168.1.147 -name camera1 -out /recordings
 
 ```
+
+> The valid way of setting debug mode is the following: `./monitor -debug` or `./monitor -debug=true`
+> But not this: `./monitor -debug true`, see https://pkg.go.dev/flag#hdr-Command_line_flag_syntax
