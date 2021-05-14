@@ -47,7 +47,7 @@ func main() {
 			break
 		}
 
-		debugf("fatal error: ", err)
+		debugf("fatal error: %v", err)
 		log.Printf("camera is lost, wait %v and try again", *retryTime)
 
 		time.Sleep(*retryTime)
@@ -56,11 +56,7 @@ func main() {
 
 func debugf(msg string, args ...interface{}) {
 	if *debugMode {
-		if len(args) == 0 {
-			log.Print(msg)
-		} else {
-			log.Printf(msg, args...)
-		}
+		log.Printf(msg, args...)
 	}
 }
 
