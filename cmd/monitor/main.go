@@ -129,11 +129,7 @@ func monitor(settings dvrip.Settings) error {
 				prevTime = now
 			}
 
-			err = processFrame(frame, audioFile, videoFile)
-			if err != nil {
-				log.Println("failed to process the frame", err)
-				return err
-			}
+			processFrame(frame, audioFile, videoFile)
 		case <-stop:
 			log.Println("received interrupt signal: stopping")
 
@@ -148,14 +144,14 @@ func monitor(settings dvrip.Settings) error {
 	}
 }
 
-func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
+func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) {
 	if frame.Meta.Type == "G711A" { // audio
 		_, err := audioFile.Write(frame.Data)
 		if err != nil {
 			log.Println("warning: failed to write to file", err)
 		}
 
-		return nil
+		return
 	}
 
 	if frame.Meta.Frame != "" {
@@ -164,10 +160,10 @@ func processFrame(frame *dvrip.Frame, audioFile, videoFile *os.File) error {
 			log.Println("warning: failed to write to file", err)
 		}
 
-		return nil
+		return
 	}
 
-	return nil // TODO
+	return
 }
 
 func closeFiles(files ...*os.File) (errs []error) {
