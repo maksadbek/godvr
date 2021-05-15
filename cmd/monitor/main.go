@@ -195,7 +195,7 @@ func closeFiles(files ...*os.File) (errs []error) {
 func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
 	dir := *outPath + "/" + (*name) + t.Format("/2006/01/02/")
 
-	err := os.MkdirAll(dir, os.ModeDir)
+	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -218,7 +218,7 @@ func createChunkFiles(t time.Time) (*os.File, *os.File, error) {
 
 func setupLogs() error {
 	outDir := *outPath + "/" + *name
-	err := os.Mkdir(outDir, os.ModeDir)
+	err := os.Mkdir(outDir, os.ModePerm)
 
 	if err != nil && !errors.Is(err, os.ErrExist) {
 		return err
